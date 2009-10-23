@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:TitleWindow title="Settings" showCloseButton="true" close="closeMe()" styleName="titleWindowStyle" xmlns:mx="http://www.adobe.com/2006/mxml" xmlns:ak33m="http://ak33m.com/mxml" width="542" height="300">
+	<mx:Script>
+        <![CDATA[
+        	import com.cix.SaveData;
+            import mx.managers.PopUpManager;        
+			import mx.events.CloseEvent;
+			import mx.controls.Alert;
+	
+			private var confirmIcon:Class;
+			
+			private function closeMe():void
+			{
+				PopUpManager.removePopUp(this);
+			}
+			
+  			private function clearAll():void
+  			{
+  				Alert.show("Are you sure you want to\nclear all saved data?", "Remove all", Alert.YES|Alert.NO, this, confirmHandler, confirmIcon, Alert.NO);			
+  			}
+  			private function confirmHandler(event:CloseEvent):void
+  			{
+				if (event.detail == Alert.YES)
+				{
+  					var saveData:SaveData = new SaveData();
+  					saveData.clearAllData();
+  				}
+			} 			
+        ]]>
+    </mx:Script>
+	<mx:VBox>
+		<mx:Form>
+			<mx:FormItem label="Clear Data">
+				<mx:Button label="Clear Saved Data" click="clearAll()" />
+			</mx:FormItem>
+		</mx:Form>
+	</mx:VBox>
+</mx:TitleWindow>

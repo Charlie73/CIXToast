@@ -1,0 +1,543 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:WindowedApplication title="CIX Toast" xmlns:controls="com.sephiroth.controls.*" xmlns:mx="http://www.adobe.com/2006/mxml" verticalScrollPolicy="off" horizontalScrollPolicy="off" backgroundColor="#a2a6a1" showStatusBar="false" styleName="font" paddingTop="6" paddingRight="6" paddingBottom="6" paddingLeft="6" creationComplete="checkForUpdate();initApplication();">
+	<mx:Style>
+        
+	</mx:Style>
+	<mx:Script>	
+		<![CDATA[
+			import mx.containers.TitleWindow;
+			import mx.containers.Canvas;
+			import mx.controls.ProgressBar;
+			import mx.controls.Text;
+			import mx.controls.HRule;
+			import mx.core.Application;
+			import com.cix.Message;
+			import com.cix.ToastAlert;
+			import mx.events.CloseEvent;
+			import mx.events.FlexEvent;
+			import mx.events.TreeEvent;
+			import mx.collections.XMLListCollection;
+			import mx.controls.Tree;
+			import mx.controls.Image;
+			import mx.controls.CheckBox;
+			import mx.containers.VBox;
+			import mx.controls.Label;
+			import mx.collections.ArrayCollection;
+			import mx.core.IFlexDisplayObject;
+			import mx.rpc.events.FaultEvent;
+			import OAuth.OAuthToken;
+			import com.cix.SaveData;
+			import mx.rpc.events.ResultEvent;
+			import mx.core.UIComponent;
+			import mx.controls.HTML;
+			import mx.managers.PopUpManager;
+			import com.cix.Settings;
+			import com.cix.CixApi;
+			import mx.managers.CursorManager;
+			import air.update.ApplicationUpdaterUI;  
+        	import air.update.events.UpdateEvent;
+		    
+		    import mx.controls.Alert;
+		    
+			/*
+			private var _growl:GrowlService;
+			private var _app:com.adobe.growl.Application;
+			private var _noticeType:com.adobe.growl.NotificationType;
+			*/
+	    	private var _cixApi:CixApi = new CixApi();
+	    	private var _saveData:SaveData = new SaveData();
+	    	private var _dockImage:BitmapData;
+	    	private var _clientName:String = "CIXToast";
+	    	private var appUpdater:ApplicationUpdaterUI = new ApplicationUpdaterUI();// Instantiate the updater
+	    	
+	    	[Bindable]
+			private var _toastHistory:ArrayCollection = new ArrayCollection();
+	    	
+	    	[Bindable]
+	    	private var _XMLForums:XML = <Forums/>;
+
+			private function checkForUpdate():void {  
+ 				//Use the loader object to load an image, which will be used for the systray.
+		        var loader:Loader = new Loader();
+		        loader.contentLoaderInfo.addEventListener(Event.COMPLETE, prepareForSystray);
+		        loader.load(new URLRequest("img/icon16.png"));
+ 				
+	            // The code below is a hack to work around a bug in the framework so that CMD-Q still works on MacOS  
+	            // This is a temporary fix until the framework is updated  
+	            // See http://www.adobe.com/cfusion/webforums/forum/messageview.cfm?forumid=72&catid=670&threadid=1373568  
+	            NativeApplication.nativeApplication.addEventListener(Event.EXITING,  
+	                function(e:Event):void {  
+	                    var opened:Array = NativeApplication.nativeApplication.openedWindows;  
+	                    for (var i:int = 0; i < opened.length; i ++) {  
+	                        opened[i].close();  
+	                    }  
+	            });  
+	  
+	            // Configuration stuff - see update framework docs for more details  
+	            appUpdater.updateURL = "http://forums.cixonline.com/CIXToast/update.xml"; // Server-side XML file describing update  
+	            appUpdater.isCheckForUpdateVisible = false; // We won't ask permission to check for an update  
+	            appUpdater.addEventListener(UpdateEvent.INITIALIZED, onUpdate); // Once initialized, run onUpdate  
+	            appUpdater.addEventListener(ErrorEvent.ERROR, onError); // If something goes wrong, run onError  
+	            appUpdater.initialize(); // Initialize the update framework  
+	        }
+	        
+	        private function onUpdate(event:UpdateEvent):void {  
+            	appUpdater.checkNow(); // Go check for an update now  
+        	}
+	        
+          	private function onError(event:ErrorEvent):void {  
+            	Alert.show(event.toString());  
+        	}
+	        
+		    public function initApplication():void {		        
+		        var loader:Loader = new Loader();
+		        loader.contentLoaderInfo.addEventListener(Event.COMPLETE, prepareForSystray);
+		        loader.load(new URLRequest("img/icon16.png"));
+
+		       	//we only need to go through the authentifcation process if don't have an accessToken saved
+		       	var accessToken:OAuthToken = _saveData.CIXAccessTokenGet();
+		       	if(accessToken==null) {
+		        	//we add this eventListener here and not in the CixApi file as I want to keep program logic seperate to the core API functions	   
+		        	_cixApi._hsGetRequestToken.addEventListener(ResultEvent.RESULT, gotRequestToken);	       
+		        	_cixApi.getRequestToken();
+		        }
+		        else {
+		        	_cixApi.AccessToken=accessToken;
+	        		getUserForums();
+		        }
+		    }
+		    
+		    private function messageAddToToastHistory(message:Message):void {
+		    	
+		    	if (_toastHistory.length >= 50)
+		    		_toastHistory.removeItemAt(_toastHistory.length - 1);
+		    	_toastHistory.addItemAt(message, 0);
+		    }
+		    
+		    private function goToForumsPage(e:MouseEvent):void {
+		    	var cixLink:String = e.target.getChildByName("lblMessageTitle").text;
+	  			var forum:String = cixLink.substring(4, cixLink.indexOf("/", 0));
+	  			var topic:String = cixLink.substring(cixLink.indexOf("/", 0) + 1, cixLink.indexOf(":", 4));
+	  			var messageID:String = cixLink.substring(cixLink.indexOf(":", 4) + 1, cixLink.length);
+	  			var cixForumsURL:String = "http://forums.cixonline.com/secure/thread.aspx?forum=" + forum + "&topic=" + topic + "&msg=" + messageID + "&nu=0";
+	  			navigateToURL(new URLRequest(cixForumsURL));
+		    }
+		    
+		    private function goToForums(message:Message):void {
+		    	var cixForumsURL:String = "http://forums.cixonline.com/secure/thread.aspx?forum=" + message.Forum + "&topic=" + message.Topic + "&msg=" + message.MessageID + "&nu=0";
+	  			navigateToURL(new URLRequest(cixForumsURL));
+		    }
+		    
+		    private function getUserForums():void {
+		    	_cixApi._hsUserForums.addEventListener(ResultEvent.RESULT, gotUserForums);
+		    	_cixApi.getUserForums();
+		    	CursorManager.setBusyCursor();
+		    }
+		    
+		    private function gotUserForums(e:ResultEvent):void {
+          		var SavedForumsXML:XMLList = _saveData.forumsGet(); 
+          		if (SavedForumsXML==null)
+  					alertSetupHandler(e);
+  				else {
+  					var APIForumsXML:XML = XML(e.result);
+  					// check we have the same number of saved forums
+  					if (SavedForumsXML.Forum.length() != APIForumsXML.*::Forums.*::ForumRow.*::Name.length())
+  						auditForums(e);
+  					else
+  						populateTreeFromSavedData(SavedForumsXML);
+		    	}
+		    	CursorManager.removeBusyCursor();
+		    	startNewMessagesTimer();
+		    }
+		    
+		    private function populateTreeFromSavedData(savedData:XMLList):void {
+		    	for each (var f:XML in savedData.Forum)
+  					_XMLForums.appendChild(f);	
+		    }
+		    
+		    private function auditForums(userForums:ResultEvent):void {
+    			var SavedForumsXML:XMLList = _saveData.forumsGet();
+    			var APIForumsXML:XML = XML(userForums.result);
+
+	    		removeResignedForums(APIForumsXML, SavedForumsXML);
+	    		addJoinedForums(APIForumsXML, SavedForumsXML);
+				
+				populateTreeFromSavedData(_saveData.forumsGet());
+		    }
+		    
+		    private function removeResignedForums(aPIForumsXML:XML, savedForumsXML:XMLList):void {
+		    	var forumExists:Boolean;
+	    		for each (var forum:XML in savedForumsXML.Forum) {
+	    			forumExists=false;
+	    			for (var i:int=0;i<aPIForumsXML.*::Forums.*::ForumRow.*::Name.length();i++) {
+	    				if(aPIForumsXML.*::Forums.*::ForumRow[i].*::Name==forum.@name) {
+	    					forumExists=true;
+	    					break;
+	    				}
+	    			}
+	    			if(!forumExists)
+    					_saveData.forumDelete(forum.@name.toString()); //NOTE: we don't need to delete from _XMLForums as that array hasn't been built yet
+	    		}		    
+		    }
+		    
+		    private function addJoinedForums(aPIForumsXML:XML, savedForumsXML:XMLList):void {
+		    	var newForum:Boolean;
+	    		for (var i:int=0;i<aPIForumsXML.*::Forums.*::ForumRow.*::Name.length();i++) {
+    				newForum=true;
+    				for each (var forum2:XML in savedForumsXML.Forum) {
+	    				if(forum2.@name==aPIForumsXML.*::Forums.*::ForumRow[i].*::Name) {
+	    					newForum=false;
+	    					break;
+	    				}
+	    			}
+	    			if (newForum) {
+	    				if(aPIForumsXML.*::Forums.*::ForumRow[i].*::Priority=="Priority")
+	          				_saveData.forumSave(<Forum name={aPIForumsXML.*::Forums.*::ForumRow[i].*::Name} alert="1"></Forum>);
+          				else
+          					_saveData.forumSave(<Forum name={aPIForumsXML.*::Forums.*::ForumRow[i].*::Name} alert="0"></Forum>);
+	    			}
+    			}		    	
+		    }
+		    
+		    private function alertSetupHandler(forums:ResultEvent):void {
+				
+				var XMLForums:XML = XML(forums.result);
+				var i:int;
+          		//parse the returned xml
+          		for (i=0;i<XMLForums.*::Forums.*::ForumRow.*::Name.length();i++) {
+          			if(XMLForums.*::Forums.*::ForumRow[i].*::Priority=="Priority")
+          				_XMLForums.appendChild(<Forum name={XMLForums.*::Forums.*::ForumRow[i].*::Name} alert="1"></Forum>);
+      				else
+      					_XMLForums.appendChild(<Forum name={XMLForums.*::Forums.*::ForumRow[i].*::Name} alert="0"></Forum>);
+				}
+  				_saveData.forumsSaveAllForum(_XMLForums);
+			}
+		    
+		    private function checkTree(e:TreeEvent):void {
+		    	var x:XML = e.item as XML
+		    	_saveData.forumSave(x);
+		    }
+		    
+		    private function startNewMessagesTimer():void {
+		        //setup timer that handles the API calls interval
+		        _cixApi.setPointersBack(_clientName);
+      			var newMessagesTimer:Timer = new Timer(45000, 0); // 45000 is 45 seconds balch
+	    		newMessagesTimer.addEventListener("timer", newMessagesTimerHandle);
+        		newMessagesTimer.start();
+      		}
+        		
+		    private function newMessagesTimerHandle(event:TimerEvent):void {
+		    	if (_cixApi.AccessToken!=null)
+		    		getNewMessages();
+		    }
+		    
+		    private function getNewMessages():void {
+		    	_cixApi._hsUserScratchPad.resultFormat="xml";
+		    	_cixApi._hsUserScratchPad.addEventListener(ResultEvent.RESULT, gotNewUnread);
+		    	_cixApi._hsUserScratchPad.addEventListener(FaultEvent.FAULT, gotNewUnreadFault);
+		    	_cixApi.getScratchPad(_clientName, 20);
+		    }
+		    
+		    private function gotNewUnread(e:ResultEvent):void {
+		    	
+		    	var newMessagesArray:ArrayCollection = new ArrayCollection();
+		    	var newMessages:XML = new XML(_cixApi._hsUserScratchPad.lastResult);
+		    	
+		    	for (var i:int=0;i<newMessages.*::Messages.*::Msg.length();i++) {
+		    		var forum:String = newMessages.*::Messages.*::Msg[i].*::Forum.toString();
+		    		var topic:String = newMessages.*::Messages.*::Msg[i].*::Topic.toString();
+		    		var messageID:String = newMessages.*::Messages.*::Msg[i].*::ID.toString();
+		    		var body:String = newMessages.*::Messages.*::Msg[i].*::Body.toString();
+		    		var author:String = newMessages.*::Messages.*::Msg[i].*::Author.toString();
+		    		var sPosted:String = newMessages.*::Messages.*::Msg[i].*::DateTime.toString();
+		    		var month:int;
+          			//if the month has a leading zero
+          			if (sPosted.substr(3, 1)=="0")
+          				month = parseInt(sPosted.substr(4, 1)) - 1;
+          			else
+						month = parseInt(sPosted.substr(3, 2)) - 1;
+		    		var posted:Date = new Date(sPosted.substr(6, 4), month, sPosted.substr(0, 2), sPosted.substr(11, 2), sPosted.substr(14, 2), sPosted.substr(17, 2), 0);
+		    		
+		    		var ForumAttr:XMLList = _XMLForums.Forum;
+			    	for each (var forumsXML:XML in ForumAttr) {
+			    		if (forumsXML.@name==forum && forumsXML.@alert=="1")
+			    			newMessagesArray.addItem(new Message(forum, topic, messageID, body, author, posted));
+			    	}
+		    	}
+		    	
+		    	/*Debug section*/
+		    	/*
+		    	var sPosted:String = "16/10/2009 15:33:12";
+	    		var month:int;
+      			
+      			if (sPosted.substr(3, 1)=="0")
+      				month = parseInt(sPosted.substr(4, 1)) - 1;
+      			else
+					month = parseInt(sPosted.substr(3, 2)) - 1;
+	    		var posted:Date = new Date(sPosted.substr(6, 4), month, sPosted.substr(0, 2), sPosted.substr(11, 2), sPosted.substr(14, 2), sPosted.substr(17, 2), 0);
+				newMessagesArray.addItem(new Message("cix.customer", "9feedback", "123", "The is a message with not a lot of content in.", "nigelg", posted));
+				newMessagesArray.addItem(new Message("games", "wii", "1", "This message has a little more content but not much more.", "charlie", posted));
+				newMessagesArray.addItem(new Message("poledancing", "diy", "449", "At least twice as much content in this one. This message has a little more content but not much more This message has a little more content but not much more.", "mat", posted));
+				newMessagesArray.addItem(new Message("enquire_within", "48discussion", "1991", "I can see a few problems with that approach:- What happens if not all parties in the court agree as to whether the person was capable of giving informed consent?", "mat", posted));
+				newMessagesArray.addItem(new Message("cix.customer", "9feedback", "198", "not much.", "gmdavies", posted));
+				newMessagesArray.addItem(new Message("cix.customer", "9feedback", "198", "not much.", "gmdavies", posted));
+				newMessagesArray.addItem(new Message("cix.customer", "9feedback", "198", "not much.", "gmdavies", posted));
+		    	
+		    	/*Debug section end*/
+
+		    	// if we have new messages that need alerts to
+		    	if (newMessagesArray.length > 0) {
+		    		/*
+		    		//if growl is available to us
+		    		if (_growl.connected) {
+			    		for each (var mes:Message in newMessagesArray) {
+	    					//onNotify(mes);
+	    					Alert.show("growl should show");
+	    					messageAddToScreenHistory
+	    				}
+    				}
+    				*/
+    				//else {
+    					for each (var message:Message in newMessagesArray) {
+	    					messageAddToToastHistory(message);
+	    				}
+    					var toast:ToastAlert = new ToastAlert(newMessagesArray); 
+        				toast.show();
+    				//}
+    			}
+		    }
+/* - Growl attempt using GrowlAIRConnector.swc - cannot register, socket problem
+		    private function registerGrowl():void {
+		    	// you really should never need to override these values 
+				var host:String = "127.0.0.1"; 
+				var port:int = 23053; 
+				var growl:GrowlAIRConnector = new GrowlAIRConnector(host, port); 
+				
+				// all AIR-based apps must supply a password, so you can use the following methods (you have to set these *before* calling register() or notify() ):
+				growl.setPassword("growl"); 
+				growl.setPasswordHashAlgorithm(""); 
+				growl.setEncryptionAlgorithm("");
+				
+				growl.addEventListener(GrowlOKResponseEvent.OK_RESPONSE, function(e:Event):void { 
+			        // here is where you can handle an OK response from Growl if you want 
+			        // usually, you dont need to handle this event 
+				}); 
+
+				growl.addEventListener(GrowlErrorResponseEvent.ERROR_RESPONSE, function(e:GrowlErrorResponseEvent):void { 
+			        // here is where you can handle an ERROR response from Growl if you want 
+			        // usually, you dont need to handle this event, but it is useful to figure out what is going wrong while debugging 
+				}); 
+				
+				growl.addEventListener(GrowlCallbackResponseEvent.CALLBACK_RESPONSE, function(e:GrowlCallbackResponseEvent):void { 
+			        // here is where you can handle an CALLBACK response from Growl if you want 
+			        // if you want to be notified when a user clicks a notification, you must pass the appropriate callback-related information when calling notify() 
+			        // then, when a notificaiton is clicked/closed/times out, this event will be fired 
+				});
+				
+				var appli:Object=new Object();
+				appli.name="CIX Toast";
+				appli.icon="img/icon128.png";
+				
+				var notif:Object=new Object; 
+                notif.name="newMessage"; 
+                notif.displayName ="The title of a growl"; 
+                notif.enabled=true; 
+                var notificationTypes:Array=new Array(notif); 
+				
+				
+				
+				
+				// to register your application: 
+				growl.register(appli, notificationTypes); // where application:Object, notificationTypes:Array 
+				// once registered, to send notifications: 
+				//growl.notify(appName, notification);            // where appName:String, notification:Object 
+				// 'application' objects have the following properites: .name - string, required .icon - string, optional (usually a url to an image) 
+				// 'notificationType' objects have the following properties: .name - string, required (uniquely identifies this type of notification) .displayName - string, optional (the name for this notification that the user will see display in Growl - defaults to the same value as .name if not set) .icon - string, optional (usually a url to an image) .enabled - boolean, optional (defaults to false if not set - sets the initial state of the notification type) 
+				// 'notification' objects have the following properties: .name - string, required (must match one of the notificationType.names that was registered) .id - string, required (a unique id for the notification, can be blank if you want) .title - string, required (the title of the notification) .text - string, required (the text of the notification) .icon - string, optional (usually a url to an image) .priority - int, optional (must be be one of the following values: -2, -1, 0, 1, 2 - defaults to 0) .sticky - boolean, optional (if the notification is requesting to be sticky - defaults to false if not set) 
+				// the following notification properties should only be set if you want to be receive notification callbacks .callback.context - string, required to receive callbacks only (can pass any value you want here) .callback.type - string, required to receive callbacks only (can pass any value you want here) .callback.target - string, optional (if this is set, you will not receive socket-based callbacks, but instead, url callbacks will be used - should be a valid url if set) 
+		    }
+*/
+/* - Growl attempt using as3growl.swc - Registers but cannot send growls
+		    private function registerGrowl():void {
+		    	_app = new com.adobe.growl.Application();
+	    		_app.name="CIX Toast";
+        		_app.iconPath = new File(new File("app:/img/icon128.png").nativePath).url; 
+	    		
+	    		_growl = new GrowlService(_app, null, 23052);
+	    		
+	    		_noticeType = new com.adobe.growl.NotificationType();
+    			_noticeType.enabled = false;
+    			_noticeType.name = "testing2";
+    			_noticeType.displayName = "Notification Display Name";
+	    		
+	    		_growl = new GrowlService(_app);
+    
+		        //broadcast if error connecting to service
+		        _growl.addEventListener(IOErrorEvent.IO_ERROR, onIOError);
+		        
+		        //broadcast when a notification is clicked
+		        _growl.addEventListener(GrowlResponseEvent.NOTIFICATION_CLICK, onNotificationClick);
+		        _growl.connect([_noticeType]);
+		    }
+		    
+		    private function onIOError(e:IOErrorEvent):void
+			{
+			    Alert.show("IOError");
+			}
+			
+			private function onNotificationClick(e:GrowlResponseEvent):void
+			{
+				Alert.show("Notification Clicked : " + e.notificationId);
+			}
+		    
+		    //send a notification
+			private function onNotify(message:Message):void {
+		        var n:Notification = new Notification();
+		        n.name = "Foo Name";
+		        n.title = "This is the title.";
+		        n.text = "This is the notification text";
+		        n.sticky = false;
+		        n.iconPath = _app.iconPath;
+		        
+		        _growl.notify(n);
+			}
+*/
+		    private function gotNewUnreadFault(e:FaultEvent):void {
+		    	Alert.show(e.fault.faultString + "\n\n" + e.fault.content, "Could not get new messages");
+		    }
+		    
+		    private function gotRequestToken(e:ResultEvent):void {
+		    	var html:HTMLLoader = new HTMLLoader;
+		       	html.height=201;
+		       	html.width=268;
+				var urlReq:URLRequest = new URLRequest("http://forums.cixonline.com/auth.aspx?oauth_token=" + _cixApi.RequestToken.key +"&oauth_callback=http%3a%2f%2fforums.cixonline.com/airHook.htm");
+				html.addEventListener(Event.COMPLETE, loaded);
+				html.load(urlReq);
+				
+				var holder:UIComponent = new UIComponent();
+				holder.addChild(html);
+				
+				PopUpManager.addPopUp(holder, this, true);
+	        	PopUpManager.bringToFront(holder);
+				
+				html.x = (this.width / 2) - (html.width / 2);
+	      		html.y = (this.height / 2) - (html.height / 2);
+	
+				function airHook():void {
+					PopUpManager.removePopUp(holder);				
+					//we add this eventListener here and not in the CixApi file as I want to keep program logic seperate to the core API functions
+					_cixApi._hsGetAccessToken.addEventListener(ResultEvent.RESULT, gotAccessToken);
+					//we have just authedorized the request token so now lets swap it for an accessToken
+					_cixApi.getAccessToken();
+				} 
+					 
+				function loaded(e:Event):void {
+				    html.window.JSairHook = airHook;
+				}
+		    }
+	
+			private function gotAccessToken(e:ResultEvent):void {
+				//save the accessToken
+				_saveData.CIXAccessTokenSave(_cixApi.AccessToken);
+				getUserForums();		
+			}
+			
+		    public function prepareForSystray(event:Event):void {
+		        //Retrieve the image being used as the systray icon
+		        _dockImage = event.target.content.bitmapData;
+		         
+	 			if (NativeApplication.supportsDockIcon)// for Mac
+					DockIcon(NativeApplication.nativeApplication.icon).menu = createSystrayRootMenu();
+		        else if (NativeApplication.supportsSystemTrayIcon) {// for windows
+					SystemTrayIcon(NativeApplication.nativeApplication.icon).tooltip = "CIX Toast";
+					SystemTrayIcon(NativeApplication.nativeApplication.icon).addEventListener(MouseEvent.CLICK, undock);
+	        		stage.nativeWindow.addEventListener(NativeWindowDisplayStateEvent.DISPLAY_STATE_CHANGING, nwMinimized); //Catch the minimize event
+					SystemTrayIcon(NativeApplication.nativeApplication.icon).menu = createSystrayRootMenu();
+		        }
+		    }
+	
+		    private function createSystrayRootMenu():NativeMenu {
+		        //Add the menuitems with the corresponding actions
+		        var menu:NativeMenu = new NativeMenu();
+		        var openNativeMenuItem:NativeMenuItem = new NativeMenuItem("Open");
+		        var exitNativeMenuItem:NativeMenuItem = new NativeMenuItem("Exit");
+		
+		        //What should happen when the user clicks on something...
+				openNativeMenuItem.addEventListener(Event.SELECT, undock);
+		        exitNativeMenuItem.addEventListener(Event.SELECT, closeApp);
+		        //Add the menuitems to the menu
+		        menu.addItem(openNativeMenuItem);
+		        menu.addItem(new NativeMenuItem("",true));
+				//separator
+		        menu.addItem(exitNativeMenuItem);
+		        
+		        return menu;
+		    }
+		
+		    private function nwMinimized(displayStateEvent:NativeWindowDisplayStateEvent):void {
+		        if(displayStateEvent.afterDisplayState == NativeWindowDisplayState.MINIMIZED) {
+		            displayStateEvent.preventDefault();
+		            dock(); //Dock (our own minimize)
+		        }
+		    }
+	
+		    public function dock():void {
+		        stage.nativeWindow.visible = false; //Hide the applcation
+		        NativeApplication.nativeApplication.icon.bitmaps = [_dockImage]; //Setting the bitmaps array will show the application icon in the systray
+		    }
+			
+			private function showSettingsPanel():void {
+          		// Create a non-modal TitleWindow container.
+                var settWindow:IFlexDisplayObject = PopUpManager.createPopUp(this, Settings, true);
+                PopUpManager.centerPopUp(settWindow);
+			}
+			
+		    public function undock(evt:Event):void {
+		        //After setting the window to visible, make sure that the application is ordered to the front, else we'll still need to click on the application on the taskbar to make it visible
+		        stage.nativeWindow.visible = true;
+		        stage.nativeWindow.orderToFront();
+		         
+		        //Clearing the bitmaps array also clears the applcation icon from the systray
+		        NativeApplication.nativeApplication.icon.bitmaps = [];
+		    }
+		
+		    private function closeApp(evt:Event):void {
+		        stage.nativeWindow.close();
+		    }
+		    
+		    private function messageRollOut(e:MouseEvent):void {
+		    	e.target.setStyle("backgroundColor","#d9d6d2");
+		    }
+		    
+		    private function messageRollOver(e:MouseEvent):void {
+		    	e.target.setStyle("backgroundColor","#eeeeee");
+		    }
+		]]>
+	</mx:Script>	
+	<mx:VBox height="100%" width="100%" borderThickness="0">
+		<mx:HBox width="100%" height="38" backgroundColor="#d9d6d2" paddingTop="6" paddingRight="6" paddingLeft="6">
+			<mx:Image source="/img/cix.png" autoLoad="true" />
+			<mx:Label text="Toast" fontSize="14" paddingTop="3" fontWeight="bold" />
+			<mx:Spacer width="100%" />
+			<mx:Label paddingTop="4" text="{NativeApplication.nativeApplication.applicationDescriptor.*::version[0]}" fontSize="10" />
+		</mx:HBox>
+		<mx:HBox id="ForumsBox" height="100%" width="100%" backgroundColor="#d9d6d2" verticalGap="0" horizontalGap="0">
+			<controls:TreeCheckBox id="ForumTree" height="100%" width="50%" dataProvider="{_XMLForums.Forum}" alternatingItemColors="[#EEEEEE,#d9d6d2]" labelField="@name" checkField="@alert" itemCheck="checkTree(event);" />
+			<mx:Canvas height="100%" width="50%" verticalScrollPolicy="on" horizontalScrollPolicy="off">
+				<mx:VBox height="100%" width="100%" verticalGap="0" horizontalGap="0">
+					<mx:Repeater id="repToast" recycleChildren="true" dataProvider="{_toastHistory}">
+						<mx:VBox id="vbMessage" width="100%" mouseChildren="false" buttonMode="true" useHandCursor="true" horizontalScrollPolicy="off" verticalScrollPolicy="off" paddingLeft="8" paddingRight="8" click="goToForums(event.currentTarget.getRepeaterItem())" rollOut="messageRollOut(event)" rollOver="messageRollOver(event)">
+							<mx:Label id="lblCixLink" name="lblMessageTitle" text="cix:{repToast.currentItem.Forum}/{repToast.currentItem.Topic}:{repToast.currentItem.MessageID}" />
+							<mx:Text id="txtBody" width="100%" text="{repToast.currentItem.Body}" />
+							<mx:HBox width="100%">
+								<mx:Image id="imgAuth" source="/img/icon_profile10.png" />
+								<mx:Label id="lblAuth" text="{repToast.currentItem.Author}" />
+							</mx:HBox>
+						</mx:VBox>
+						<mx:HRule width="100%" shadowColor="#a2a6a1" strokeColor="#a2a6a1" />
+					</mx:Repeater>
+				</mx:VBox>
+			</mx:Canvas>
+		</mx:HBox>
+	</mx:VBox>
+</mx:WindowedApplication>
